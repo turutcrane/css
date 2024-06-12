@@ -56,6 +56,7 @@ package css
 import (
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 
 	"golang.org/x/net/html"
@@ -763,4 +764,80 @@ func (c *compiler) typeSelector(s *typeSelector) *typeSelectorMatcher {
 	}
 	m.ns = newNamespaceMatcher(s.hasPrefix, s.prefix)
 	return m
+}
+
+func (s Selector) MatchOr(target *html.Node) bool {
+	for _, sel := range s.s {
+		if matchSub(target, sel.m, sel.combinators, false) {
+			return true
+		}
+	}
+	return false
+}
+
+func matchSub(n *html.Node, m *compoundSelectorMatcher, combinators []combinator, ancestor bool) bool {
+	if n == nil {
+		return false
+	}
+	if n.Type != html.ElementNode {
+		return matchSub(n.Parent, m, combinators, ancestor)
+	}
+	cnum := len(combinators)
+	if cnum == 0 {
+		if m.match(n) {
+			return true
+		} else if ancestor {
+			return matchSub(n.Parent, m, combinators[0:cnum], true)
+		}
+		return false
+	}
+
+	switch c := (combinators[cnum-1]).(type) {
+	case *descendantCombinator:
+		if c.m.match(n) {
+			return matchSub(n.Parent, m, combinators[0:cnum-1], true)
+		} else if ancestor {
+			return matchSub(n.Parent, m, combinators[0:cnum], true)
+		}
+	case *childCombinator:
+		if c.m.match(n) {
+			return matchSub(n.Parent, m, combinators[0:cnum-1], false)
+		} else if ancestor {
+			return matchSub(n.Parent, m, combinators[0:cnum], true)
+		}
+	case *adjacentCombinator:
+		if c.m.match(n) {
+			for s := n.PrevSibling; s != nil; s = s.PrevSibling {
+				if s.Type == html.ElementNode {
+					return matchSub(s, m, combinators[0:cnum-1], false)
+				}
+			}
+			return false
+		} else if ancestor {
+			return matchSub(n.Parent, m, combinators[0:cnum], true)
+		}
+	case *siblingCombinator:
+		if c.m.match(n) {
+			for s := n.PrevSibling; s != nil; s = s.PrevSibling {
+				if s.Type == html.ElementNode {
+					if matchSub(s, m, combinators[0:cnum-1], false) {
+						return true
+					}
+				}
+			}
+			for s := n.NextSibling; s != nil; s = s.NextSibling {
+				if s.Type == html.ElementNode {
+					if matchSub(s, m, combinators[0:cnum-1], false) {
+						return true
+					}
+				}
+			}
+			return false
+		} else if ancestor {
+			return matchSub(n.Parent, m, combinators[0:cnum], true)
+		}
+	default:
+		log.Panicln("unexpected combinator!", c)
+	}
+	return false
 }
