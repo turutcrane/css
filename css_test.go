@@ -789,7 +789,8 @@ func TestSelector(t *testing.T) {
 		in := b.String()
 
 		got := []string{}
-		for _, n := range s.Select(root) {
+		selected := s.Select(root)
+		for _, n := range selected {
 			b := &bytes.Buffer{}
 			if err := html.Render(b, n); err != nil {
 				t.Errorf("Failed to render result of selecting %q from %s: %v", test.sel, in, err)
@@ -800,6 +801,22 @@ func TestSelector(t *testing.T) {
 		if diff := cmp.Diff(test.want, got); diff != "" {
 			t.Errorf("Selecting %q (%s) from %s returned diff (-want, +got): %s", test.sel, s, in, diff)
 		}
+  
+		var traverseCheck func(*html.Node)
+		traverseCheck = func(node *html.Node) {
+			if node == nil {
+				return
+			}
+			if node.Type == html.ElementNode {
+				if arrayIn(selected, node) != s.MatchAnd(node) {
+					t.Errorf("Failed to match with result of selecting %q from %s: %v", test.sel, test.in, err)
+				}
+			}
+			traverseCheck(node.FirstChild)
+			traverseCheck(node.NextSibling) 
+		}
+		traverseCheck(root)
+
 	}
 }
 
@@ -825,4 +842,13 @@ func TestBadSelector(t *testing.T) {
 			t.Errorf("Parsing %s returned unexpected position, got=%d, want=%d", test.sel, perr.Pos, test.pos)
 		}
 	}
+}
+
+func arrayIn(a []*html.Node, x *html.Node) bool {
+	for _, n := range a {
+		if n == x {
+			return true
+		}
+	}
+	return false
 }
